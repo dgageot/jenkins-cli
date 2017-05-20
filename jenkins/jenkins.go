@@ -1,21 +1,21 @@
 package jenkins
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 )
 
-func Get(user, token, server, uri string) (io.ReadCloser, error) {
-	var url = fmt.Sprintf("https://%s:%s@%s%s", user, token, server, uri)
-	request, err := http.NewRequest("GET", url, nil)
+func Get(user, token, server, query string) (body io.ReadCloser, err error) {
+	key, value, err := crumb(user, token, server)
 	if err != nil {
 		return nil, err
 	}
 
-	key, value, err := getCrumb(user, token, server)
+	uri := uri(user, token, server, query)
+	request, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -30,17 +30,17 @@ func Get(user, token, server, uri string) (io.ReadCloser, error) {
 	return response.Body, nil
 }
 
-func getCrumb(user string, token string, server string) (string, string, error) {
-	var url = fmt.Sprintf("https://%v:%v@%v/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,\":\",//crumb)", user, token, server)
+func crumb(user, token, server string) (key string, value string, err error) {
+	uri := uri(user, token, server, "/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,\":\",//crumb)")
 
-	response, err := http.Get(url)
+	response, err := http.Get(uri)
 	if err != nil {
 		return "", "", err
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode >= http.StatusBadRequest {
-		return "", "", fmt.Errorf("http response code (%v)", response.StatusCode)
+		return "", "", errors.New(response.Status)
 	}
 
 	body, err := ioutil.ReadAll(response.Body)
@@ -48,6 +48,10 @@ func getCrumb(user string, token string, server string) (string, string, error) 
 		return "", "", err
 	}
 
-	crumbKeyValue := strings.Split(string(body), ":")
-	return crumbKeyValue[0], crumbKeyValue[1], nil
+	parts := strings.Split(string(body), ":")
+	return parts[0], parts[1], nil
+}
+
+func uri(user, token, server, query string) (uri string) {
+	return user + ":" + token + "@" + server + query
 }
